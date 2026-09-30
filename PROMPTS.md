@@ -1,5 +1,7 @@
 # PROMPTS.md — Module 5 hands-on
 
+PR: https://github.com/Ten-Do/m5-handson/pull/1
+
 AI assistant: Claude (Opus 5.5). Coverage figures are for `TaxCalculator`, the
 class under test. The JaCoCo report total also counts test classes, because the
 Makefile passes `--classfiles build`.
