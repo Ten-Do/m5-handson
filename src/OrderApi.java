@@ -22,6 +22,21 @@ public class OrderApi {
                 .orElseGet(ResponseEntity::notFound);
     }
 
+    /**
+     * Create a new order for a customer ({@code POST /orders}).
+     *
+     * <p>The new order gets a server-generated unique id and the initial
+     * status {@code "NEW"} (both assigned by {@link OrderService#create}).
+     * The customer id is not checked against any customer registry.
+     *
+     * @param req the order to create, taken from the request body; must be
+     *            non-null, with a non-blank {@code customerId} and a strictly
+     *            positive {@code amount} (INR)
+     * @return {@code 201 Created} whose body is the created order and whose
+     *         {@code Location} is {@code /orders/{id}}; or {@code 400 Bad Request}
+     *         with an empty body if {@code req} violates any constraint above
+     *         (nothing is created in that case)
+     */
     @PostMapping
     public ResponseEntity<OrderDto> create(@RequestBody CreateOrderRequest req) {
         if (req == null || req.customerId() == null || req.customerId().isBlank()

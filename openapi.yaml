@@ -1,0 +1,124 @@
+openapi: 3.0.3
+info:
+  title: Order API
+  version: 0.1.0
+  description: >
+    HTTP contract of OrderApi (src/OrderApi.java), a Spring-style
+    @RestController over an in-memory OrderService.
+  license:
+    name: MIT
+servers:
+  - url: /
+paths:
+  /orders:
+    get:
+      operationId: listOrders
+      summary: List all orders.
+      # TODO: ordering of the returned list is unspecified (backed by a ConcurrentHashMap);
+      # no pagination or filtering is implemented.
+      responses:
+        '200':
+          description: All orders currently stored (possibly empty).
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/OrderDto'
+        # Added by hand: the controller itself never returns a 4xx here; 406 is
+        # the framework-level response when the Accept header excludes JSON.
+        '406':
+          description: Not Acceptable. The client does not accept application/json.
+    post:
+      operationId: createOrder
+      summary: Create a new order for a customer.
+      description: >
+        The order gets a server-generated id and initial status NEW.
+        The customerId is not checked against any customer registry.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderRequest'
+      responses:
+        '201':
+          description: Order created.
+          headers:
+            Location:
+              description: URI of the new order, /orders/{id}.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDto'
+        '400':
+          description: >
+            Missing body, blank or missing customerId, or missing or non-positive amount.
+            The response body is empty and no order is created.
+  /orders/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        description: Order id (UUID string generated at creation).
+        schema:
+          type: string
+    get:
+      operationId: getOrder
+      summary: Fetch one order by id.
+      responses:
+        '200':
+          description: The order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OrderDto'
+        '404':
+          description: No order with this id. The response body is empty.
+    delete:
+      operationId: cancelOrder
+      summary: Cancel an order.
+      description: >
+        Sets the order's status to CANCELLED. The order is not removed and is
+        still returned by GET afterwards.
+      responses:
+        '204':
+          description: Order cancelled.
+        '404':
+          description: No order with this id. The response body is empty.
+        '409':
+          description: The order is already CANCELLED. The response body is empty.
+components:
+  schemas:
+    CreateOrderRequest:
+      type: object
+      required: [customerId, amount]
+      properties:
+        customerId:
+          type: string
+          minLength: 1
+          description: Must not be blank (whitespace-only is rejected).
+          example: c-42
+        amount:
+          type: number
+          exclusiveMinimum: true
+          minimum: 0
+          description: Order amount in INR. Must be strictly positive.
+          example: 1500.00
+    OrderDto:
+      type: object
+      required: [id, customerId, amount, status]
+      properties:
+        id:
+          type: string
+          format: uuid
+        customerId:
+          type: string
+        amount:
+          type: number
+        status:
+          type: string
+          # TODO: status is a free-form String in Order; only NEW and CANCELLED are set by the code.
+          enum: [NEW, CANCELLED]

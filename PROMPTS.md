@@ -258,3 +258,209 @@ the conditional-boundary mutants on lines 13, 20, 23 and 26 (`computeIncomeTax`)
 Mutation testing was the more useful feedback: coverage already showed
 `isEligibleForReturn` at 100% branches after Part B, but PIT still found an
 untested boundary (age 0), and that gap would have hidden an off-by-one bug.
+
+---
+
+# Session 5B — Auto-documentation
+
+**Starter gap:** `m5-pub.tgz` (downloaded 2026-09-30) does not contain
+`OrderApi.java`, even though the handout and the starter README both describe
+it. I added it in a separate commit, before any documentation work, with no
+JavaDoc:
+
+- `src/OrderApi.java`: `@RestController @RequestMapping("/orders")` with four
+  endpoints over `OrderService`: `GET /orders`, `GET /orders/{id}` (404 if
+  unknown), `POST /orders` (400 on invalid body, 201 + Location on success),
+  and `DELETE /orders/{id}` (cancel: 204, 404 unknown, 409 already cancelled).
+- `src/CreateOrderRequest.java`: request record `(customerId, amount)`.
+- `src/SpringStubs.java`, `src/ResponseEntity.java`: fake Spring annotations
+  and a minimal `ResponseEntity`, so the code compiles without Spring (as the
+  starter README describes).
+
+## Part A — JavaDoc for `POST /orders` (`OrderApi.create`)
+
+### Prompt 1 (generation)
+
+```
+Generate JavaDoc for the following method. Rules:
+- One-line summary in imperative mood.
+- Describe the contract, not the implementation.
+- @param for each parameter with type and constraints.
+- @return with what is returned.
+- @throws for each declared or unchecked exception the
+  caller should be aware of.
+- If any behaviour is not evident from the code, write
+  "TODO" and skip.
+
+@PostMapping
+public ResponseEntity<OrderDto> create(@RequestBody CreateOrderRequest req) {
+    if (req == null || req.customerId() == null || req.customerId().isBlank()
+            || req.amount() == null || req.amount().signum() <= 0) {
+        return ResponseEntity.badRequest();
+    }
+    Order o = service.create(req.customerId(), req.amount());
+    return ResponseEntity.created(URI.create("/orders/" + o.getId()), OrderDto.from(o));
+}
+```
+
+### AI reply (first draft, verbatim)
+
+```java
+/**
+ * Create a new order for a customer ({@code POST /orders}).
+ *
+ * <p>The new order gets a server-generated UUID id and the initial status
+ * {@code "NEW"}.
+ *
+ * @param req the order to create, deserialized from the JSON request body;
+ *            must be non-null, with a non-blank {@code customerId} and a
+ *            strictly positive {@code amount}
+ * @return {@code 201 Created} whose body is the created order and whose
+ *         {@code Location} is {@code /orders/{id}}; or {@code 400 Bad Request}
+ *         with an empty body if {@code req} violates any constraint above
+ */
+```
+> No `@throws`: the method declares no checked exceptions, and invalid input is
+> reported as a 400 response rather than thrown.
+
+### Prompt 2 (verification, pass 1)
+
+```
+Given the JavaDoc above and the method body below,
+identify any statement in the JavaDoc that is inconsistent
+with the code. Do not fix; just list.
+
+<method body as above>
+```
+
+### AI reply (pass 1)
+
+> 1. "deserialized from the JSON request body": nothing in the code fixes the
+>    media type (no `consumes`, and the annotations are stubs with no message
+>    converter), so "JSON" is not supported by the code.
+> 2. "server-generated UUID id and the initial status NEW": neither the id
+>    format nor the initial status appears in this method body. They come from
+>    `OrderService.create` / the `Order` constructor, so as written the
+>    JavaDoc states behaviour this method does not show.
+
+**Fixes:** (1) replaced "deserialized from the JSON request body" with "taken
+from the request body". (2) Checked `OrderService.create` (`UUID.randomUUID()`)
+and the `Order` constructor (`status = "NEW"`). The claim is true, so I kept
+it but attributed it with `{@link OrderService#create}` and weakened "UUID" to
+"unique id", because the UUID format is a detail of the service
+implementation. While editing I also added two contract facts the caller should know:
+"amount (INR)", "nothing is created in that case", and "customer id is not
+checked against any customer registry".
+
+### Verification, pass 2
+
+I sent the same prompt with the revised JavaDoc and the method body, plus
+`OrderService.create` and the `Order` constructor, since the JavaDoc now links to them.
+
+> No inconsistencies.
+
+Final JavaDoc is in `src/OrderApi.java` above `create`.
+
+## Part B — README
+
+### Prompt
+
+```
+Draft a README.md for this repository with sections:
+description, build, quick example, contributing, license.
+Use MIT license placeholder.
+Rules:
+- Do NOT invent features not present in the code.
+- If a section has no evidence in the code, write "TODO" and
+  skip.
+- The one-line description must be a factual summary of what
+  the code does, not marketing copy.
+
+<file tree: Makefile, README.md, .gitignore, src/{TaxCalculator, Order, OrderDto,
+OrderService, OrderApi, CreateOrderRequest, ResponseEntity, SpringStubs}.java,
+test/TaxCalculatorTest.java>
+<contents of Makefile, starter README.md, TaxCalculator.java, OrderApi.java>
+```
+
+The raw reply is saved verbatim as `README.raw.md`.
+
+### Grep verification of claims in the raw draft
+
+| Claim in `README.raw.md` | Check | Result |
+|---|---|---|
+| "Start the application", `curl … http://localhost:8080/orders` with JSON | `grep -rnE "main\(\|SpringApplication\|8080\|server\|json"` | **no match**: there is no entry point, no HTTP server and no JSON binding. **Invented, deleted.** |
+| "`OrderApi` is a Spring `@RestController` exposing `/orders` endpoints" | `src/SpringStubs.java`, Makefile classpath | **Misleading**: the annotations are local stubs and Spring is not on the classpath, so nothing is exposed. **Invented capability, rewritten** as "a controller written in Spring MVC style… not served over HTTP". |
+| "See `LICENSE` for details" | `ls` | **no `LICENSE` file**. **Deleted**, replaced with an explicit MIT placeholder. |
+| Tax slabs, GST rates, exemption cap, make targets, report paths | read `TaxCalculator.java`, `Makefile` | correct, kept |
+| `computeIncomeTax(700000)` → 52500 | ran it | correct (prints `52500.00`) |
+
+**Invented features deleted: 3.** These were the runnable HTTP server and curl
+example, the claim that Spring actually serves the endpoints, and the
+`LICENSE` file.
+
+### Hand edits for `README.md`
+
+- Wrote the one-line description myself.
+- Expanded the description to cover each `TaxCalculator` method's contract.
+- Replaced the curl example with a Java example that calls `OrderApi`
+  directly. I compiled and ran it to confirm it gives 52500.00, 180.00,
+  false, 201 and `/orders/<uuid>`.
+- Replaced the `TODO` under **Contributing** with real guidance taken from
+  the Makefile's `--targetTests=*Test`, the test conventions used in this
+  module and `PROMPTS.md`.
+
+## Part C — OpenAPI spec
+
+### Prompt
+
+```
+Read the following Spring @RestController and generate an
+OpenAPI 3.0 YAML spec covering:
+- Every endpoint (path, method, summary from JavaDoc).
+- Request body schemas for POST/PUT.
+- Response schemas for 2xx and 4xx.
+- Referenced DTO schemas in the components section.
+If any endpoint's behaviour is unclear, add a TODO comment
+in the spec at that location.
+
+<full OrderApi.java, plus OrderDto.java and CreateOrderRequest.java for the DTO shapes>
+```
+
+The output is saved as `openapi.yaml`. The AI added two TODOs: the unspecified
+ordering of `GET /orders`, and `status` being a free-form String in `Order`.
+
+### Verification
+
+The browser check in editor.swagger.io is still to be done by hand. In the
+meantime I ran a script that parses `openapi.yaml` and cross-checks it
+against the `@*Mapping` annotations in `OrderApi.java`:
+
+| Check | Result |
+|---|---|
+| Every endpoint present with correct path + method | 4/4 (`GET /orders`, `POST /orders`, `GET /orders/{id}`, `DELETE /orders/{id}`) |
+| Every `$ref` defined in `components` | `OrderDto`, `CreateOrderRequest` both defined |
+| ≥1 2xx and ≥1 4xx per operation | first AI output: **`GET /orders` had only `200`**, the other 3 passed |
+
+**Hand fix:** added `406 Not Acceptable` to `GET /orders`. The controller has no
+failure path of its own, so the framework-level content-negotiation failure
+is the only honest 4xx for that endpoint. After the fix all four operations pass.
+4xx responses have no body schema because every 4xx in `OrderApi` returns an
+empty body. An invented `Error` schema would contradict the code.
+
+## Part D — Reflect
+
+- **JavaDoc inconsistencies caught by the AI self-check on the first pass:
+  2.** One was a real overclaim ("JSON"). The other was true but was not
+  backed by the method body (UUID/NEW come from the service). The second pass
+  found none.
+- **Invented features in the README pass: 3.** These were the runnable HTTP
+  server with a curl example, Spring actually serving the endpoints, and a
+  `LICENSE` file.
+- **Most hand editing: the README.** JavaDoc and OpenAPI are generated
+  from a single file and can be checked mechanically against it, with the
+  self-check prompt and the mapping and `$ref` script. A README has to
+  summarise the whole repository, including how to *run* it. The model filled
+  that gap with the usual assumptions for a Spring project (a server on 8080,
+  curl, a LICENSE file), and each of those had to be grep-checked and
+  rewritten by hand. Its Quick example and Contributing sections were mostly
+  rewritten.
